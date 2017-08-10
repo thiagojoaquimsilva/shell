@@ -1,0 +1,29 @@
+#!/bin/bash
+
+ifconfig eth1 up
+ifconfig eth1 10.42.0.1/24
+
+iptables -t nat -F
+iptables -F
+
+echo '1' > /proc/sys/net/ipv4/ip_forward
+iptables -t nat -A POSTROUTING -o wlan1 -j MASQUERADE
+
+#for i in $(cat /root/webs-negado.txt)
+#   do
+#       iptables -A FORWARD -m string --algo bm --string "$i" -j LOG --log-prefix "FIREWALL: HTTPS-NEGADO "
+#       iptables -A FORWARD -m string --algo bm --string "$i" -j REJECT
+#done
+
+#iptables -A FORWARD -i eth1 -o eth0 -j ACCEPT
+
+service dnsmasq start
+
+iptables -A INPUT -i eth1 -p udp -m udp --dport 67 -j ACCEPT
+iptables -A INPUT -i eth1 -p tcp -m tcp --dport 67 -j ACCEPT
+iptables -A INPUT -i eth1 -p udp -m udp --dport 53 -j ACCEPT
+iptables -A INPUT -i eth1 -p tcp -m tcp --dport 53 -j ACCEPT
+iptables -A FORWARD -d 10.42.0.0/24 -o eth1 -m state --state RELATED,ESTABLISHED -j ACCEPT
+
+#-A FORWARD -i eth1 -m mac --mac-source 5E:8E:B3:10:CB:F4 -j ACCEPT
+#iptables -A FORWARD -m mac --mac-source 5e:8e:b3:10:cb:f4 -i eth1 -j ACCEPT
