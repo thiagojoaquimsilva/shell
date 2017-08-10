@@ -1,0 +1,505 @@
+#!/bin/bash
+
+##############################################################################
+# UnderLinux BandLimit v0.4                                                  #
+# ============================================                               #
+#                                                                            #
+# Copyright (c) 2003 by Marcus Maciel(ScOrP|On) scorpion@underlinux.com.br   #
+# http://www.underlinux.com.br                                               #
+#                                                                            #
+# This program is free software. You can redistribute it and/or modify       #
+# it under the terms of the GNU General Public License as published by       #
+# the Free Software Foundation; either version 2 of the License.             #
+##############################################################################
+
+
+#ChangeLog v0.4
+# Descobre o path dos binários usando which (by Eri Ramos Bastos erirb at xtms.com.br)
+# transforma stop e start em funções  (by Eri Ramos Bastos erirb at xtms.com.br)
+# cria uma função de instalação  (by Eri Ramos Bastos erirb at xtms.com.br)
+# cria um menu "init-like" (start|stop|restart|install)  (by Eri Ramos Bastos erirb at xtms.com.br)
+# verifica sempre se o sistema está instalado antes de executá-lo  (by Eri Ramos Bastos erirb at xtms.com.br)
+# permite maior modularização  (by Eri Ramos Bastos erirb at xtms.com.br)
+# resolvido problema de nao utilizacao do modulo de compartilhamento 
+
+
+#ChangeLog v0.3
+#adicionado compartilhamento de Link
+
+#ChangeLog v0.2
+#
+#Adicionado opcao para PATH de executaveis
+
+
+# Dependencias
+# Ipchains ou Iptables , iproute2 , modulos do kernel de CBQ QoS e compania... hehehe :)
+# Iptables: necessita de  iptable_mangle e ipt_MARK
+# Ipchains: nenhuma
+
+##################
+#INSTALACAO
+# crie o diretorio bandlimit dentro do seu /etc
+# mkdir /etc/bandlimit
+# dentro deste diretorio crie os arquivos ips e interfaces
+# touch /etc/bandlimit/ips
+# touch /etc/bandlimit/interfaces
+# depois edite o ips e o interfaces 
+# colocando dentro do ips
+# os ips que vc deseja limitar 1 por linha no seguinte formato
+# ip:ratein:rateout ex: 10.0.1.2:97:33
+# e no interfaces as interfaces que vc usa na sua maquina
+# no formato ethx ex: eth0
+# 1 por linha tambem :)))
+#
+# Para rodar coloque o script dentro do seu rc.local
+# Para remover as regras digite rc.bandlimit stop
+#
+##################
+
+#Checa se o usuario eh root
+if [ $(whoami) != root ]
+then
+	echo "Voce nao e root"
+	exit 1
+fi
+
+# Instalacao do sistema
+
+finstall(){
+#verifica a existencia do destino
+if [ -d /etc/bandlimit ]
+then
+	echo "Sistema ja instalado."
+else
+	mkdir /etc/bandlimit
+	INST_IP=0
+	#Loop para configuracao de IPs
+	echo "Configurando IPs. Digite fim na configuracao de IP para terminar"
+	while [ $INST_IP != fim ]
+	do
+		read -p "Entre com IP: " INST_IP
+		if [ $INST_IP = "fim" ]
+		then
+			break
+		fi
+		read -p "Entre com Rate-IN: " INST_RATE_IN
+		read -p "Entre com Rate-OUT: " INST_RATE_OUT
+		echo "$INST_IP:$INST_RATE_IN:$INST_RATE_OUT" >> /etc/bandlimit/ips
+	done
+	INST_INT=0
+	#Loop para configuracao de Interfaces
+	echo "Configurando Interfaces. Digite fim para terminar"
+	while [ $INST_INT != "fim" ]
+	do
+		read -p "Entre com Interface: " INST_INT
+		if [ $INST_INT = "fim" ]
+		then
+			break
+		fi
+		echo $INST_INT >> /etc/bandlimit/interfaces
+	done
+fi
+}
+
+#PATH para os executaveis
+#Devem ser descobertos automaticamente
+
+IPTABLES=`which iptables`
+TC=`which tc`
+#IPCHAINS=`which ipchains`
+GREP=`which grep`
+CUT=`which cut`
+EXPR=`which expr`
+
+####
+# IMPORTANTE!!!! USAMOS OS COMANDO
+#        iptables -F -t mangle
+#        ipchains -F input
+#        ipchains -F output
+# Isso fara com que se voce tem alguma regra no seu mangle no iptables
+# ou alguma regra no input ou output no seu ipchains esta regra sera apagada
+# Para que voce nao perca suas regras de Firewall do iptables/ipchains
+# Caso use alguma coisa no mangle do iptables ou alguma coisa no input/output 
+# no ipchains sete seu script de regras abaixo abaixo
+#Lembrando que usamos o mangle apartir do mark 2 e este vai gerando um mark novo
+#ate acabar seus ips ou seja se voce fizer pra 250 ips o ultimo mark sera o 252
+#Caso use o Mark tente comecar apartir do 1000 para evitar Marks Iguais
+#script=/path/seuscript.sh
+script=0
+
+##########################################################################################################
+#Inicio da Configuracao
+
+
+
+comum()
+{
+#Arquivos de Configuracao
+ips=/etc/bandlimit/ips
+#ips2=/etc/bandlimit/ips2
+interfaces=/etc/bandlimit/interfaces
+
+##########################################################
+# Opcao de instalacao e remocao
+#########################################################
+
+
+
+
+######################################
+#Este arquivo e para compartilhar Link
+#Ou seja se voce quer que mais de 1 ip use o mesmo link
+#coloque os "Filhos" dentro deste arquivo
+#e lembre-se os filhos nao podem estar dentro do arquivo ips
+#o formato do compartilha e o seguinte:
+#
+#ippai:ipfilho1:ipfilho2:0
+#
+#Ou seja:
+#
+#10.0.1.2:10.0.1.3:10.0.1.4:0
+#
+#lembre-se de terminar sempre com o :0
+#caso contrario ele vai entrar num looping infinito :))
+
+#compartilha=/etc/bandlimit/compartilha
+compartilha=inexistente
+#########################
+
+#Firewall's Suportados ipchains e Iptables # Padrao IPTABLES
+#firewall=ipchains
+firewall=iptables
+###################################
+
+
+#############
+# Interfaces
+redelocal=eth1
+#redelocal2=eth0
+redelocal2=inexistente
+internet=eth0
+#############
+
+
+
+
+#Fim da configuracao
+##########################################################################################################
+#ifacenum=0
+
+###Contando o numero de Interaces####
+#for iface in `cat $interfaces`
+#do
+#	ifacenum=`$EXPR $ifacenum + 1`
+#done
+
+
+if [ $firewall == "iptables" ]
+then
+        modprobe iptable_mangle
+        modprobe ipt_MARK
+fi
+
+} #fim do comum
+
+#inicio do markador :)
+mark=2
+
+#Stop e Start colocados dentro de funcoes
+
+fstop(){
+		comum
+		echo "Removendo Regras"
+		for iface in `cat $interfaces`
+		do
+			$TC qdisc del dev $iface root
+		done
+		if [ $firewall == "iptables" ]
+		then
+			$IPTABLES -F -t mangle
+			if [ $script != "0" ]
+			then
+				$script
+			fi
+		else
+			$IPCHAINS -F input
+			$IPCHAINS -F output
+			if [ $script != "0" ]
+				then
+					$script
+			fi
+		fi
+}
+
+
+
+fstart(){
+		comum
+		#Limpar Regras antes de rodar o script ):)
+		$IPTABLES -F -t mangle
+		if [ $firewall == "iptables" ]
+		then
+			$IPTABLES -F -t mangle
+			if [ $script != "0" ]
+			then
+				$script
+			fi
+
+		else
+			$IPCHAINS -F input
+			$IPCHAINS -F output
+			if [ $script != "0" ]
+			then
+				$script
+			fi
+
+		fi
+
+
+		#adicionado interfaces
+		for iface in `cat $interfaces`
+			do
+				$TC qdisc del dev $iface root
+				$TC qdisc add dev $iface root handle 1 cbq bandwidth 10Mbit avpkt 1000 cell 8
+				$TC class change dev $iface root cbq weight 1Mbit allot 1514
+			done
+
+		####
+
+
+		for ip in `cat $ips`
+		do 
+			ratein=`echo $ip | $CUT -d ":" -f 2`
+			rateout=`echo $ip | $CUT -d ":" -f 3`
+			ip=`echo $ip | $CUT -d ":" -f 1`
+
+
+
+#conteudo da variavel var
+var=2
+compartip=1
+
+			#entrada
+			$TC class add dev $redelocal parent 1: classid 1:$mark cbq bandwidth 10Mbit rate "$ratein"Kbit weight `$EXPR $ratein / 10`Kbit prio 5 allot 1514 cell 8 maxburst 20 avpkt 1000 bounded
+			$TC qdisc add dev $redelocal parent 1:$mark handle $mark sfq perturb 10
+			$TC filter add dev $redelocal parent 1:0 protocol ip prio 200 handle $mark fw classid 1:$mark
+			if [ $firewall == "iptables" ]
+			then
+				$IPTABLES -t mangle -A POSTROUTING -d $ip -j MARK --set-mark $mark
+				if [ $compartilha != "inexistente" ]
+				then
+					if [ `$GREP $ip $compartilha  | $CUT -d ":" -f 1` == $ip ]
+					then
+						while [ $compartip != "0" ] 
+						do
+							compartip=`$GREP $ip $compartilha  | $CUT -d ":" -f $var`
+							$IPTABLES -t mangle -A POSTROUTING -d $compartip -j MARK --set-mark $mark
+							var=`$EXPR $var + 1`
+							compartip=`$GREP $ip $compartilha  | $CUT -d ":" -f $var`
+						done
+					fi 
+				fi
+
+			else
+				$IPCHAINS -A output -d $ip  --mark $mark
+				if [ $compartilha != "inexistente" ]
+				then
+					if [ `$GREP $ip $compartilha  | $CUT -d ":" -f 1` == $ip ]
+					then
+						while [ $compartip != "0" ] 
+						do
+							compartip=`$GREP $ip $compartilha  | $CUT -d ":" -f $var`
+							$IPCHAINS -A output -d $compartip  --mark $mark
+							var=`$EXPR $var + 1`
+							compartip=`$GREP $ip $compartilha  | $CUT -d ":" -f $var`
+						done
+					fi 
+				fi
+			fi
+
+
+#conteudo da variavel var
+var=2
+compartip=1
+
+			#Saida 
+			$TC class add dev $internet parent 1: classid 1:$mark cbq bandwidth 10Mbit rate "$rateout"Kbit weight `$EXPR $rateout / 10`Kbit prio 5 allot 1514 cell 8 maxburst 20 avpkt 1000 bounded
+			$TC qdisc add dev $internet parent 1:$mark handle $mark  sfq perturb 10
+			$TC filter add dev $internet parent 1:0 protocol ip prio 200 handle $mark fw classid 1:$mark
+                        if [ $firewall == "iptables" ]
+                        then
+				$IPTABLES -t mangle -A FORWARD -s $ip -j MARK --set-mark $mark
+				if [ $compartilha != "inexistente" ]
+				then
+					if [ `$GREP $ip $compartilha  | $CUT -d ":" -f 1` == $ip ]
+					then
+						while [ $compartip != "0" ] 
+						do
+							compartip=`$GREP $ip $compartilha  | $CUT -d ":" -f $var`
+							$IPTABLES -t mangle -A FORWARD -s $compartip -j MARK --set-mark $mark
+							var=`$EXPR $var + 1`
+							compartip=`$GREP $ip $compartilha  | $CUT -d ":" -f $var`
+						done
+					fi 
+				fi
+			else
+				$IPCHAINS -A input -s $ip --mark $mark
+				if [ $compartilha != "inexistente" ]
+				then
+					if [ `$GREP $ip $compartilha  | $CUT -d ":" -f 1` == $ip ]
+					then
+						while [ $compartip != "0" ] 
+						do
+							compartip=`$GREP $ip $compartilha  | $CUT -d ":" -f $var`
+							$IPCHAINS -A input -s $compartip --mark $mark
+							var=`$EXPR $var + 1`
+							compartip=`$GREP $ip $compartilha  | $CUT -d ":" -f $var`
+						done
+					fi 
+				fi
+			fi
+			#################################################################
+			mark=`$EXPR $mark + 1`
+		done
+
+		if [ $redelocal2 != "inexistente" ]
+		then		
+			for ip in `cat $ips2`
+			do 
+				ratein=`echo $ip | $CUT -d ":" -f 2`
+				rateout=`echo $ip | $CUT -d ":" -f 3`
+				ip=`echo $ip | $CUT -d ":" -f 1`
+
+#conteudo da variavel var
+var=2
+compartip=1
+
+				#entrada
+				$TC class add dev $redelocal2 parent 1: classid 1:$mark cbq bandwidth 10Mbit rate "$ratein"Kbit weight `$EXPR $rateout / 10`Kbit prio 5 allot 1514 cell 8 maxburst 20 avpkt 1000 bounded
+				$TC qdisc add dev $redelocal2 parent 1:$mark handle $mark sfq perturb 10
+				$TC filter add dev $redelocal2 parent 1:0 protocol ip prio 200 handle $mark fw classid 1:$mark
+				if [ $firewall == "iptables" ]
+				then
+					$IPTABLES -t mangle -A POSTROUTING -d $ip -j MARK --set-mark $mark
+					if [ $compartilha != "inexistente" ]
+					then
+						if [ `$GREP $ip $compartilha  | $CUT -d ":" -f 1` == $ip ]
+						then
+							while [ $compartip != "0" ] 
+							do
+								compartip=`$GREP $ip $compartilha  | $CUT -d ":" -f $var`
+								$IPTABLES -t mangle -A POSTROUTING -d $compartip -j MARK --set-mark $mark
+								var=`$EXPR $var + 1`
+								compartip=`$GREP $ip $compartilha  | $CUT -d ":" -f $var`
+							done
+						fi 
+					fi
+				else
+					$IPCHAINS -A output -d $ip  --mark $mark
+					if [ $compartilha != "inexistente" ]
+					then
+						if [ `$GREP $ip $compartilha  | $CUT -d ":" -f 1` == $ip ]
+						then
+							while [ $compartip != "0" ] 
+							do
+								compartip=`$GREP $ip $compartilha  | $CUT -d ":" -f $var`
+								$IPCHAINS -A output -d $compartip  --mark $mark
+								var=`$EXPR $var + 1`
+								compartip=`$GREP $ip $compartilha  | $CUT -d ":" -f $var`
+							done
+						fi 
+					fi
+				fi
+
+
+#conteudo da variavel var
+var=2
+compartip=1
+
+				#Saida 
+				$TC class add dev $internet parent 1: classid 1:$mark cbq bandwidth 10Mbit rate "$rateout"Kbit weight `$EXPR $rateout / 10`Kbit prio 5 allot 1514 cell 8 maxburst 20 avpkt 1000 bounded
+				$TC qdisc add dev $internet parent 1:$mark handle $mark  sfq perturb 10
+				$TC filter add dev $internet parent 1:0 protocol ip prio 200 handle $mark fw classid 1:$mark
+	                        if [ $firewall == "iptables" ]
+       	 	                then
+					$IPTABLES -t mangle -A FORWARD -s $ip -j MARK --set-mark $mark
+					if [ $compartilha != "inexistente" ]
+					then
+						if [ `$GREP $ip $compartilha  | $CUT -d ":" -f 1` == $ip ]
+						then
+							while [ $compartip != "0" ] 
+							do
+								compartip=`$GREP $ip $compartilha  | $CUT -d ":" -f $var`
+								$IPTABLES -t mangle -A FORWARD -s $compartip -j MARK --set-mark $mark
+								var=`$EXPR $var + 1`
+								compartip=`$GREP $ip $compartilha  | $CUT -d ":" -f $var`
+							done
+						fi 
+					fi
+				else
+					$IPCHAINS -A input -s $ip --mark $mark
+					if [ $compartilha != "inexistente" ]
+					then
+						if [ `$GREP $ip $compartilha  | $CUT -d ":" -f 1` == $ip ]
+						then
+							while [ $compartip != "0" ] 
+							do
+								compartip=`$GREP $ip $compartilha  | $CUT -d ":" -f $var`
+								$IPCHAINS -A input -s $compartip --mark $mark
+								var=`$EXPR $var + 1`
+								compartip=`$GREP $ip $compartilha  | $CUT -d ":" -f $var`
+							done
+						fi 
+					fi
+				fi
+				#################################################################
+				mark=`$EXPR $mark + 1`
+			done
+		fi
+
+}
+
+
+##
+# Aqui rodamos as opcoes
+# Mais amigavel e modular usando estrutura case
+#
+##
+case $1 in
+
+	stop)
+		if [ -d /etc/bandlimit ]
+		then
+			fstop
+		else
+			echo "Sistema nao instalado"
+			exit 1
+		fi
+		;;
+
+	start)
+		if [ -d /etc/bandlimit ]
+		then
+			fstart
+		else
+			echo "Sistema nao instalado"
+			exit 1
+		fi
+		;;
+	restart)
+		if [ -d /etc/bandlimit ]
+		then
+			$0 stop
+			$0 start
+		else
+			echo "Sistema nao instalado"
+			exit 1
+		fi
+		;;
+	install)
+		finstall
+		;;
+	*)
+		echo "Uso: $0 (stop|start|restart|install)"
+		;;
+esac
