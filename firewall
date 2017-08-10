@@ -1,0 +1,148 @@
+#!/bin/bash
+
+stop(){
+
+iptables -t nat -F
+iptables -F
+echo '0' > /proc/sys/net/ipv4/ip_forward
+service dnsmasq stop
+}
+
+start(){
+
+ifconfig eth0 up
+ifconfig eth0 10.42.0.1/24
+
+iptables -t nat -F
+iptables -F
+
+echo '1' > /proc/sys/net/ipv4/ip_forward
+iptables -t nat -A POSTROUTING -o wlan0 -j MASQUERADE
+
+service dnsmasq start
+#service hostapd start
+
+iptables -A INPUT -i eth0 -p udp -m udp --dport 67 -j ACCEPT
+iptables -A INPUT -i eth0 -p tcp -m tcp --dport 67 -j ACCEPT
+iptables -A INPUT -i eth0 -p udp -m udp --dport 53 -j ACCEPT
+iptables -A INPUT -i eth0 -p tcp -m tcp --dport 53 -j ACCEPT
+iptables -A FORWARD -d 10.42.0.0/24 -o eth0 -m state --state RELATED,ESTABLISHED -j ACCEPT
+
+for j in $(cat /root/webs-negado)
+   do
+       iptables -A FORWARD -m string --algo bm --string "$j" -j LOG --log-prefix "FIREWALL: HTTPS-NEGADO "
+       iptables -A FORWARD -m string --algo bm --string "$j" -j REJECT
+done
+
+for i in $(cat /root/macs-allow)
+	do
+	iptables -A FORWARD -m mac --mac-source "$i" -i eth0 -j ACCEPT
+done
+
+iptables -A FORWARD -i eth0 -o eth0 -j ACCEPT
+iptables -A FORWARD -o eth0 -j REJECT --reject-with icmp-port-unreachable
+iptables -A FORWARD -i eth0 -j REJECT --reject-with icmp-port-unreachable
+iptables -t nat -A PREROUTING -s 10.42.0.0/24 -p tcp --dport 80 -j REDIRECT --to-ports 3128
+iptables -t nat -A PREROUTING -s 10.42.0.0/24 -p tcp --dport 443 -j REDIRECT --to-ports 3128
+iptables -t nat -A PREROUTING -s 10.42.0.0/24 -p udp --dport 80 -j REDIRECT --to-ports 3128
+iptables -t nat -A PREROUTING -s 10.42.0.0/24 -p udp --dport 443 -j REDIRECT --to-ports 3128
+
+}
+
+hotspot() {
+
+ifconfig eth0 up
+ifconfig eth0 10.42.0.1/24
+
+iptables -t nat -F
+iptables -F
+
+echo '1' > /proc/sys/net/ipv4/ip_forward
+iptables -t nat -A POSTROUTING -o wlan0 -j MASQUERADE
+
+service dnsmasq start
+#service hostapd start
+
+iptables -A INPUT -i eth0 -p udp -m udp --dport 67 -j ACCEPT
+iptables -A INPUT -i eth0 -p tcp -m tcp --dport 67 -j ACCEPT
+iptables -A INPUT -i eth0 -p udp -m udp --dport 53 -j ACCEPT
+iptables -A INPUT -i eth0 -p tcp -m tcp --dport 53 -j ACCEPT
+iptables -A FORWARD -d 10.42.0.0/24 -o eth0 -m state --state RELATED,ESTABLISHED -j ACCEPT
+
+for i in $(cat /root/macs-allow)
+        do
+        iptables -A FORWARD -m mac --mac-source "$i" -i eth0 -j ACCEPT
+done
+
+}
+
+filtro(){
+
+ifconfig eth0 up
+ifconfig eth0 10.42.0.1/24
+
+iptables -t nat -F
+iptables -F
+
+echo '1' > /proc/sys/net/ipv4/ip_forward
+iptables -t nat -A POSTROUTING -o wlan0 -j MASQUERADE
+
+service dnsmasq start
+#service hostapd start
+
+iptables -A INPUT -i eth0 -p udp -m udp --dport 67 -j ACCEPT
+iptables -A INPUT -i eth0 -p tcp -m tcp --dport 67 -j ACCEPT
+iptables -A INPUT -i eth0 -p udp -m udp --dport 53 -j ACCEPT
+iptables -A INPUT -i eth0 -p tcp -m tcp --dport 53 -j ACCEPT
+iptables -A FORWARD -d 10.42.0.0/24 -o eth0 -m state --state RELATED,ESTABLISHED -j ACCEPT
+
+for j in $(cat /root/webs-negado)
+   do
+       iptables -A FORWARD -m string --algo bm --string "$j" -j LOG --log-prefix "FIREWALL: HTTPS-NEGADO "
+       iptables -A FORWARD -m string --algo bm --string "$j" -j REJECT
+done
+
+for i in $(cat /root/macs-allow)
+        do
+        iptables -A FORWARD -m mac --mac-source "$i" -i eth0 -j ACCEPT
+done
+
+}
+
+case "$1" in
+
+	start) while true; do
+		start
+		break
+		done
+;;
+
+	hotspot) while true; do
+		hotspot
+		break
+		done
+;;
+
+        filtro) while true; do
+		filtro
+		break
+		done
+;;
+	stop) while true; do
+	     stop
+	     break
+	    done
+;;
+	restart) while true; do
+		stop
+		start
+		break
+		done
+;;
+	*)
+		echo "Usage: ./firewall  {start|stop|restart|filtro|hotspot}" >&2
+        exit 3
+;;
+esac
+
+exit 0
