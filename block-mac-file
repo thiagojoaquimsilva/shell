@@ -1,0 +1,13 @@
+#!/bin/bash
+/bin/hotspot-restart
+for i in $(cat /root/macs-allow)
+	do
+	iptables -A FORWARD -m mac --mac-source "$i" -i eth1 -j ACCEPT
+done
+iptables -A FORWARD -i eth1 -o eth1 -j ACCEPT
+iptables -A FORWARD -o eth1 -j REJECT --reject-with icmp-port-unreachable
+iptables -A FORWARD -i eth1 -j REJECT --reject-with icmp-port-unreachable
+iptables -t nat -A PREROUTING -s 10.42.0.0/24 -p tcp --dport 80 -j REDIRECT --to-ports 3128
+#iptables -t nat -A PREROUTING -s 10.42.0.0/24 -p tcp --dport 443 -j REDIRECT --to-ports 3128
+iptables -t nat -A PREROUTING -s 10.42.0.0/24 -p udp --dport 80 -j REDIRECT --to-ports 3128
+iptables -t nat -A PREROUTING -s 10.42.0.0/24 -p udp --dport 443 -j REDIRECT --to-ports 3128
