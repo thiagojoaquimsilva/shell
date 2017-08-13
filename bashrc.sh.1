@@ -1,0 +1,24 @@
+#!/bin/bash
+
+Color="
+$(tput setaf 0 && tput bold)
+$(tput setaf 1 && tput bold)
+$(tput setaf 2 && tput bold)
+$(tput setaf 3 && tput bold)
+$(tput setaf 4 && tput bold)
+$(tput setaf 5 && tput bold)
+$(tput setaf 6 && tput bold)
+$(tput setaf 7 && tput bold)
+"
+cores=($Color)
+num_cores=${#cores[*]}
+random=${cores[$((RANDOM%num_cores))]}
+hora=`date +%H`
+num=$(($RANDOM % 10))
+	if [ $hora == 00 ] || [ $hora == 01 ] || [ $hora == 02 ] || [ $hora == 03 ] || [ $hora == 04 ] || [ $hora == 05 ] || [ $hora == 06 ] || [ $hora == 07 ] || [ $hora == 08 ] || [ $hora == 09 ] || [ $hora == 10 ] || [ $hora == 11 ]; then
+		echo $random"Bom Dia Tiago"
+	elif [ $hora == 12 ] || [ $hora == 13 ] || [ $hora == 14 ] || [ $hora == 15 ] || [ $hora == 16 ] || [ $hora == 17 ] || [ $hora == 18 ]; then
+		echo $random'Boa Tarde Thiago'
+        elif [ $hora == 19 ] || [ $hora == 20 ] || [ $hora == 21 ] || [ $hora == 22 ] || [ $hora == 23 ]; then
+	     echo $random'Boa Noite Thiago'
+	fi
